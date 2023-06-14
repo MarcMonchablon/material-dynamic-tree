@@ -47,7 +47,7 @@ const FOLDERS = {
 })
 export class FoldersService {
 
-  public getRootFolders(DELAY = 2000): Promise<Folder[]> {
+  public getRootFolders(DELAY = 1000): Promise<Folder[]> {
     const folders = FOLDERS['_root_'].map(d => this.formatFolder(d));
     return new Promise((resolve, reject) => {
       setTimeout(() => resolve(folders), DELAY)
