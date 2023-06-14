@@ -1,11 +1,19 @@
 // Header
 .main-header {
   display: flex;
+  justify-content: center;
+  align-items: center;
   padding: 0.2rem 0.5em;
   background: rgba(0, 0, 0, 0.05);
 }
 .main-title {
   font-size: 1.3rem;
+}
+.main-nav a {
+  font-size: 1.2rem;
+  padding: 0.2rem 0.5rem;
+  margin-left: 0.5rem;
+  background: rgba(0, 0, 0, 0.05);
 }
 
 // Content

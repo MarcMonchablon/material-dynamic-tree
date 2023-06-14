@@ -1,6 +1,11 @@
 <header class="main-header">
   <h1 class="main-title">{{ title }}</h1>
+  <div class="flex-placeholder"></div>
+  <nav class="main-nav">
+    <a routerLink="/">/</a>
+    <a routerLink="examples/documentation">Doc</a>
+  </nav>
 </header>
 <main class="main-content">
-  <p>Hello </p>
+  <router-outlet></router-outlet>
 </main>
