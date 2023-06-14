@@ -5,8 +5,12 @@ html, body {
 }
 
 body {
+  --main-background: rgba(0, 0, 0, 0.05);
+  --header-background: rgba(0, 0, 0, 0.1);
+
   margin: 0;
   //font-family: Roboto, "Helvetica Neue", sans-serif;
+  background: var(--main-background);
 }
 
 .flex-placeholder { flex-grow: 1; }
