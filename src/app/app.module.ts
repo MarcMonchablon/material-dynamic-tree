@@ -1,5 +1,6 @@
 import { NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
+import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
@@ -9,10 +10,12 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatTreeModule } from '@angular/material/tree';
 
+import { FoldersService } from './_services/folders.service';
+
 import { AppRoutingModule } from './app-routing.module';
 import { AppComponent } from './app.component';
 import { DocumentationComponent } from './examples/documentation/documentation.component';
-import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
+import { FoldersComponent } from './examples/folders/folders.component';
 
 @NgModule({
   imports: [
@@ -29,9 +32,12 @@ import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
   ],
   declarations: [
     AppComponent,
-    DocumentationComponent
+    DocumentationComponent,
+    FoldersComponent,
   ],
-  providers: [],
+  providers: [
+    FoldersService,
+  ],
   bootstrap: [AppComponent]
 })
 export class AppModule { }
