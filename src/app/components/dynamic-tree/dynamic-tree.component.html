@@ -1,0 +1,35 @@
+<mat-accordion class="folder-tree-accordion">
+  <mat-expansion-panel hideToggle (opened)="showFolderTree = true" (closed)="showFolderTree = false">
+    <mat-expansion-panel-header>
+      <mat-panel-title>
+        <h4 [class.required]="treeRequired && checklistSelection.isEmpty()" *ngIf='treeRequired'>Dossier Keepeek pour les photos *</h4>
+        <h4 [class.required]="treeRequired && checklistSelection.isEmpty()" *ngIf='!treeRequired'>Dossier Keepeek pour les photos</h4>
+        <mat-icon aria-label="visibility icon" class="description-on" *ngIf="!showFolderTree"> visibility </mat-icon>
+        <mat-icon aria-label="visibility_off icon" class="description-off" *ngIf="showFolderTree">
+          visibility_off
+        </mat-icon>
+      </mat-panel-title>
+    </mat-expansion-panel-header>
+
+    <mat-tree [dataSource]="dataSource" [treeControl]="treeControl">
+      <mat-tree-node *matTreeNodeDef="let node" matTreeNodePadding>
+        <button mat-icon-button disabled></button>
+        <mat-checkbox class="checklist-leaf-node"
+                      [checked]="checklistSelection.isSelected(node)"
+                      (change)="leafItemSelectionToggle(node)">{{node.item}}</mat-checkbox>
+      </mat-tree-node>
+      <mat-tree-node *matTreeNodeDef="let node; when: hasChild" matTreeNodePadding>
+        <button mat-icon-button
+                [attr.aria-label]="'Toggle ' + node.item" matTreeNodeToggle [matTreeNodeToggleRecursive]="true">
+          <mat-icon class="mat-icon-rtl-mirror">
+            {{treeControl.isExpanded(node) ? 'expand_more' : 'chevron_right'}}
+          </mat-icon>
+        </button>
+        <mat-checkbox [checked]="checklistSelection.isSelected(node)" (change)="itemSelectionToggle(node)">{{node.item}}</mat-checkbox>
+        <mat-progress-bar *ngIf="node.isLoading"
+                          mode="indeterminate"
+                          class="tree-progress-bar"></mat-progress-bar>
+      </mat-tree-node>
+    </mat-tree>
+  </mat-expansion-panel>
+</mat-accordion>

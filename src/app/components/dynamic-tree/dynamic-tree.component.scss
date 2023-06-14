@@ -1,0 +1,70 @@
+.tree-progress-bar {
+  margin-left: 30px;
+}
+
+.folder-tree-accordion {
+  mat-form-field {
+    width: 100%;
+  }
+
+  .hour {
+    display: flex;
+    input {
+      width: 100%;
+    }
+  }
+
+  .mat-expansion-panel {
+    margin-bottom: 8px;
+    .mat-expansion-panel-header {
+      background: var(--color-grey);
+      padding: 0 1rem;
+      .mat-expansion-panel-header-title {
+        margin: 0;
+        h4 {
+          font-size: var(--font-size-xxsmall);
+          font-weight: 600;
+        }
+        align-items: center;
+        justify-content: space-between;
+        .required {
+          color: var(--color-red);
+        }
+      }
+      .mat-icon {
+        float: right;
+        cursor: pointer;
+      }
+      .description-on {
+        color: var(--color-primary);
+      }
+      .description-off {
+        color: var(--color-red);
+      }
+    }
+
+    h5 {
+      font-size: var(--font-size-xxsmall);
+      font-weight: 500;
+      margin: 12px 0;
+      span,
+      .mat-select :host ::ng-deep .mat-select-value {
+        color: var(--color-secondary);
+      }
+    }
+
+    ::ng-deep .mat-expansion-panel-body {
+      padding: 1rem;
+    }
+
+    ::ng-deep .mat-autocomplete-panel.mat-autocomplete-visible .mat-option {
+      font-size: var(--font-size-xxsmall);
+    }
+  }
+
+  .cnil-text {
+    text-align: justify;
+    font-size: var(--font-size-xxsmall);
+    opacity: 0.7;
+  }
+}
