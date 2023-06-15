@@ -14,6 +14,7 @@ interface FlatFolderNode {
   children: {
     status: NodeChildrenStatus,
     items: FlatFolderNode[],
+    promise?: Promise<FlatFolderNode[]>,
   }
 }
 
@@ -31,6 +32,9 @@ enum NodeChildrenStatus {
   LOADED = 'loaded',
   ERROR = 'error',
 }
+
+type PreSelectionCallbackFn = (node: FlatFolderNode | null, canceled: boolean) => void;
+
 
 @Component({
   selector: 'app-dynamic-tree',
@@ -59,15 +63,17 @@ export class DynamicTreeComponent implements OnInit {
   ngOnInit(): void {
     const defaultValue = (this.treeForm.value.trim() !== '') ? this.treeForm.value : null;
     this.selectedFolderId = defaultValue
-    this.dataSource.preselectValue(this.selectedFolderId, (node: FlatFolderNode | null) => {
+    this.dataSource.preSelectValue(this.selectedFolderId, (node: FlatFolderNode | null, canceled) => {
       console.group('[DynamicTreeComponent] onDataFetched');
       console.log('defaultValue: ', defaultValue);
       console.log('node: ', node);
+      console.log('canceled: ', canceled);
       console.groupEnd();
     });
   }
 
   public onSelectionToggle(node: FlatFolderNode, change: MatCheckboxChange): void {
+    this.dataSource.cancelPreSelection();
     if (change.checked) {
       const parentsDict = node.parentIds.reduce((acc, id) => ({...acc, [id]: true}), {});
       this.selectedFolderId = node.folderId;
@@ -94,19 +100,23 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
   private foldersToDisplay: string[] = [];
   private pendingSubFoldersToDisplay: string[] = [];
   private displayedNodes$ = new BehaviorSubject<FlatFolderNode[]>([]);
+  private preSelection: { folderId: string | null, cb: PreSelectionCallbackFn, canceled: boolean }
 
   constructor(
     private foldersSrv: FoldersService,
     private treeControl: FlatTreeControl<FlatFolderNode>,
   ) {
     this.rootFolders = { status: RootNodesStatus.NOOP, nodes: [] };
-    this.fetchRootFolders();
+    this.preSelection = { folderId: null, cb: () => {}, canceled: false };
   }
 
   // === Init & Destroy =====================================
 
   public connect(_collectionViewer: CollectionViewer): Observable<FlatFolderNode[]> {
     // The collection should be reasonably small, so collectionViewer can be ignored.
+
+    // Start by loading the root folders.
+    this.fetchRootFolders();
 
     // Update visible nodes & potentially fetch data when user manipulates the tree.
     this.treeControl.expansionModel.changed.subscribe((change: SelectionChange<FlatFolderNode>) => {
@@ -239,19 +249,28 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
       this.rootFolders = { status: RootNodesStatus.LOADED, nodes: rootNodes, };
       this.foldersToDisplay = rootNodes.map(node => node.folderId);
       this.updateNodesToDisplay();
+
+      // Potentially update & query subfolder if a value should be pre-set
+      this.updatePreSelectedNodeAfterInitialLoad();
     }).catch((error: any) => {
       this.rootFolders.status = RootNodesStatus.ERROR;
       console.warn('[DynamicTree::fetchRootFolders] ERROR: ', error);
     });
   }
 
-  private fetchSubFolders(parentNode: FlatFolderNode): void {
-    if (parentNode.children.status === NodeChildrenStatus.LOADING) { return; }
-    if (parentNode.children.status === NodeChildrenStatus.LOADED) { return; }
-    if (parentNode.children.status === NodeChildrenStatus.NO_CHILDREN) { return; }
+  private fetchSubFolders(parentNode: FlatFolderNode): Promise<FlatFolderNode[]> {
+    if (parentNode.children.status === NodeChildrenStatus.LOADING) {
+      return parentNode.children.promise as Promise<FlatFolderNode[]>;
+    }
+    if (parentNode.children.status === NodeChildrenStatus.LOADED) {
+      return Promise.resolve(parentNode.children.items);
+    }
+    if (parentNode.children.status === NodeChildrenStatus.NO_CHILDREN) {
+      return Promise.resolve([]);
+    }
 
     parentNode.children.status = NodeChildrenStatus.LOADING;
-    this.foldersSrv.getSubFolders(parentNode.folderId).then((subFolders: Folder[]) => {
+    const subNodesPromise = this.foldersSrv.getSubFolders(parentNode.folderId).then((subFolders: Folder[]) => {
       const childParentIds = [...parentNode.parentIds, parentNode.folderId];
       const subNodes = subFolders.map(folder => this.folderToFlatNode(folder, childParentIds));
       for (const node of subNodes) {
@@ -278,22 +297,95 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
         this.foldersToDisplay = foldersToDisplay;
         this.updateNodesToDisplay();
       }
+
+      return subNodes;
     }).catch((error: any) => {
       parentNode.children.status = NodeChildrenStatus.ERROR;
       console.warn('[DynamicTree::fetchSubFolders] ERROR: ', {
         error: error,
         parentNode: parentNode,
       });
-    })
+
+      return Promise.reject(error);
+    });
+
+    parentNode.children.promise = subNodesPromise
+    return subNodesPromise;
   }
 
   // === Pre-select value & pre-fetch data ==================
 
-  public preselectValue(folderId: string | null, cb: (node: FlatFolderNode | null) => void): void {
+  public preSelectValue(folderId: string | null, cb: PreSelectionCallbackFn): void {
+    this.preSelection.folderId = folderId;
+    this.preSelection.cb = cb;
+
+    if (this.preSelection.canceled || folderId === null || folderId === '') {
+      // No folder to pre-select, or another folder has been selected since. Nothing to do.
+      // Call the callback, and wrap it up.
+      cb(null, this.preSelection.canceled);
+    } else if (this.rootFolders.status === RootNodesStatus.LOADED) {
+      this.updatePreSelectedNodeAfterInitialLoad();
+    } else {
+      // We are still waiting for root folders to load.
+      // The `fetchRootFolders()` method will call `this.updatePreSelectedNodeAfterInitialLoad()`.
+    }
+  }
+
+  public cancelPreSelection(): void {
+    this.preSelection.canceled = true;
+  }
+
+  private async updatePreSelectedNodeAfterInitialLoad(): Promise<void> {
+    const preSelectedId = this.preSelection.folderId;
+    const cb = this.preSelection.cb;
+
+    // First case: nothing to do.
+    if (this.preSelection.canceled || !preSelectedId || preSelectedId === '') {
+      cb(null, this.preSelection.canceled);
+      return;
+    }
+
+    // Second case: preSelected folder is one of the root (or any loaded) folders.
+    let preSelectedNode = this.fetchedNodes[preSelectedId] || null;
+    if (preSelectedNode) { cb(preSelectedNode, false); return; }
+
+    // Third case: we need to fetch more subfolders to reach preSelectedNode
+    let remainingNodes = this.getListOfRemainingNodesToLoad();
+    while (!preSelectedNode && remainingNodes.length > 0) {
+      const nextNodeToLoad = remainingNodes[0];
+      try {
+        await this.fetchSubFolders(nextNodeToLoad);
+      } catch(e) {}
+
+      // We might have canceled since.
+      if (this.preSelection.canceled) {
+        cb(null, true);
+        return;
+      }
+
+      // We don't explicitly search on the just-loaded sub-nodes, since other potential
+      // subNodes may have been loaded in-between.
+      preSelectedNode = this.fetchedNodes[preSelectedId] || null;
+      if (preSelectedNode) { cb(preSelectedNode, false); return; }
+
+      remainingNodes = this.getListOfRemainingNodesToLoad();
+    }
+
+    // Fourth and last case: we couldn't find the preSelected folder
+    cb(null, this.preSelection.canceled);
+  }
+
+  private getListOfRemainingNodesToLoad(): FlatFolderNode[] {
+    const rootNodes = this.rootFolders.nodes;
+    const remaining = rootNodes
+      .filter(node => node.children.status === NodeChildrenStatus.NOT_LOADED);
+
+    // TODO: do a breadth-first descent
+    return remaining;
+  }
+
+  private triggerSubFolderLoading() {
     // TODO
-    console.group('[FoldersDataSource] preselectValue');
-    console.log('folderId: ', folderId);
-    console.groupEnd();
   }
 
   // === Helper =============================================
