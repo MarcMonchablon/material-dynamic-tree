@@ -42,6 +42,9 @@ const FOLDERS = {
   ],
 };
 
+const VERBOSE: boolean = true;
+
+
 @Injectable({
   providedIn: 'root'
 })
@@ -49,8 +52,12 @@ export class FoldersService {
 
   public getRootFolders(DELAY = 1000): Promise<Folder[]> {
     const folders = FOLDERS['_root_'].map(d => this.formatFolder(d));
+    if (VERBOSE) { console.log('[FoldersSrv::getRootFolders] query start'); }
     return new Promise((resolve, reject) => {
-      setTimeout(() => resolve(folders), DELAY)
+      setTimeout(() => {
+        if (VERBOSE) { console.log('[FoldersSrv::getRootFolders] query end'); }
+        resolve(folders);
+      }, DELAY)
     });
   }
 
@@ -58,8 +65,12 @@ export class FoldersService {
     // @ts-ignore
     const rawSubFolders = FOLDERS[folderId] || [];
     const subFolders = rawSubFolders.map((d: any) => this.formatFolder(d));
+    if (VERBOSE) { console.log('[FoldersSrv::getSubFolder] query start', { folderId }); }
     return new Promise((resolve, reject) => {
-      setTimeout(() => resolve(subFolders), DELAY)
+      setTimeout(() => {
+        if (VERBOSE) { console.log('[FoldersSrv::getSubFolder] query end', { folderId }); }
+        resolve(subFolders);
+      }, DELAY)
     });
   }
 

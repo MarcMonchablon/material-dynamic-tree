@@ -90,6 +90,10 @@ export class DynamicTreeComponent implements OnInit {
   protected readonly NodeChildrenStatus = NodeChildrenStatus;
 }
 
+
+/**
+ * FoldersDataSource
+ */
 class FoldersDataSource implements DataSource<FlatFolderNode> {
   private fetchedNodes: Record<string, FlatFolderNode> = {};
   private rootFolders: { status: RootNodesStatus, nodes: FlatFolderNode[] };
