@@ -1,12 +1,12 @@
 import { Component, OnInit, Input, Output, EventEmitter } from '@angular/core';
 import { UntypedFormControl } from '@angular/forms';
-import { CollectionViewer, DataSource } from '@angular/cdk/collections';
+import { CollectionViewer, DataSource, SelectionChange } from '@angular/cdk/collections';
 import { FlatTreeControl } from '@angular/cdk/tree';
-import { Observable, from as observableFrom, BehaviorSubject } from 'rxjs';
+import { Observable, BehaviorSubject } from 'rxjs';
 import { FoldersService, Folder } from '../../_services/folders.service';
 
 interface FlatFolderNode {
-  id: string,
+  folderId: string,
   title: string,
   data: Folder,
   parentIds: string[],
@@ -14,6 +14,13 @@ interface FlatFolderNode {
     status: NodeChildrenStatus,
     items: FlatFolderNode[],
   }
+}
+
+enum RootNodesStatus {
+  NOOP = 'noop',
+  LOADING = 'loading',
+  LOADED = 'loaded',
+  ERROR = 'error',
 }
 
 enum NodeChildrenStatus {
@@ -44,7 +51,7 @@ export class DynamicTreeComponent implements OnInit {
     const getLevel = (node: FlatFolderNode) => node.parentIds.length;
     const isExpandable = (node: FlatFolderNode) => node.data.hasChildren;
     this.treeControl = new FlatTreeControl<FlatFolderNode>(getLevel, isExpandable);
-    this.dataSource = new FoldersDataSource(foldersSrv);
+    this.dataSource = new FoldersDataSource(foldersSrv, this.treeControl);
   }
 
   ngOnInit(): void {
@@ -83,41 +90,169 @@ export class DynamicTreeComponent implements OnInit {
   protected readonly NodeChildrenStatus = NodeChildrenStatus;
 }
 
-
 class FoldersDataSource implements DataSource<FlatFolderNode> {
-  private nodes$ = new BehaviorSubject<FlatFolderNode[]>([]);
+  private fetchedNodes: Record<string, FlatFolderNode> = {};
+  private rootFolders: { status: RootNodesStatus, nodes: FlatFolderNode[] };
+  private foldersToDisplay: string[] = [];
+  private pendingSubFoldersToDisplay: string[] = [];
+  private displayedNodes$ = new BehaviorSubject<FlatFolderNode[]>([]);
 
   constructor(
     private foldersSrv: FoldersService,
+    private treeControl: FlatTreeControl<FlatFolderNode>,
   ) {
-    this.foldersSrv.getRootFolders().then((folders: Folder[]) => {
-      const rootNodes = folders.map(folder => this.folderToFlatNode(folder, []));
-      console.group('[FoldersDataSource] getRootFolders OK');
-      console.log('folders: ', folders);
-      console.log('rootNodes: ', rootNodes);
-      console.groupEnd();
-      this.nodes$.next(rootNodes);
-    });
+    this.rootFolders = { status: RootNodesStatus.NOOP, nodes: [] };
+    this.fetchRootFolders();
   }
 
   public connect(_collectionViewer: CollectionViewer): Observable<FlatFolderNode[]> {
-    // The collection is reasonably small, so collectionViewer can be ignored.
-    // TODO
+    // The collection should be reasonably small, so collectionViewer can be ignored.
     _collectionViewer.viewChange.subscribe({
       next: (d: any) => console.log('[FoldersDataSource::collectionViewer] viewChange: ', d),
     });
 
-    return this.nodes$;
-    // return observableFrom([]);
+    // Update visible nodes & potentially fetch data when user manipulates the tree.
+    this.treeControl.expansionModel.changed.subscribe((change: SelectionChange<FlatFolderNode>) => {
+      let foldersToDisplay = [...this.foldersToDisplay];
+      let pendingSubFoldersToDisplay = [...this.pendingSubFoldersToDisplay];
+      const nodesToLoad: FlatFolderNode[] = [];
+
+      // Hide any child node of a 'removed' node;
+      // Also, potentially cancel the opening of subfolders being fetched.
+      if (change.removed.length > 0) {
+        for (const nodeToCollapse of change.removed) {
+          foldersToDisplay = foldersToDisplay.filter(folderId => {
+            const node = this.fetchedNodes[folderId];
+            const isChildOfRemovedNode = node.parentIds.includes(nodeToCollapse.folderId);
+            return !isChildOfRemovedNode;
+          });
+
+          // The folder might potentially still being fetched. Un-mark it for opening then.
+          pendingSubFoldersToDisplay = pendingSubFoldersToDisplay
+            .filter(folderId => folderId !== nodeToCollapse.folderId);
+        }
+      }
+
+      // Either load or display the immediate children of an opened node.
+      if (change.added.length > 0) {
+        for (const nodeToOpen of change.added) {
+          if (nodeToOpen.children.status === NodeChildrenStatus.LOADED) {
+            // Insert the child nodes ids right after the node to open.
+            const parentNodeIndex = foldersToDisplay.indexOf(nodeToOpen.folderId);
+            if (parentNodeIndex > -1) {
+              const childNodeIds = nodeToOpen.children.items.map(node => node.folderId);
+              foldersToDisplay.splice(parentNodeIndex + 1, 0, ...childNodeIds);
+            } else {
+              // This should not happen, unless there is a bug.
+              console.error('[DynamicTree::treeControl.expansion.changed] BUG: parent node not found.', {
+                foldersToDisplay: [...foldersToDisplay],
+                parentNode: nodeToOpen,
+                parentNodeIndex: parentNodeIndex,
+              });
+            }
+          } else if (nodeToOpen.children.status === NodeChildrenStatus.NOT_LOADED
+            || nodeToOpen.children.status === NodeChildrenStatus.ERROR) {
+            // Queue the node for fetchSubFolders, and mark for subsequent opening.
+            nodesToLoad.push(nodeToOpen);
+            pendingSubFoldersToDisplay.push(nodeToOpen.folderId);
+          } else {
+            // Nothing to do, since we are already fetching this folder.
+          }
+        }
+      }
+
+      // Finally, update the visible nodes, and potentially fetch new data.
+      this.foldersToDisplay = foldersToDisplay;
+      this.pendingSubFoldersToDisplay = pendingSubFoldersToDisplay;
+      this.updateNodesToDisplay();
+
+      // Note that 'fetchSubFolders' might trigger the 'updateNodesToDisplay' later, too.
+      for (const nodeToLoad of nodesToLoad) {
+        this.fetchSubFolders(nodeToLoad);
+      }
+    });
+
+    return this.displayedNodes$;
   }
 
-  public disconnect(collectionViewer: CollectionViewer): void {
+  public disconnect(_collectionViewer: CollectionViewer): void {
     // TODO
+  }
+
+  private fetchRootFolders(): void {
+    if (this.rootFolders.status === RootNodesStatus.LOADING) { return; }
+    if (this.rootFolders.status === RootNodesStatus.LOADED) { return; }
+
+    this.rootFolders.status = RootNodesStatus.LOADING;
+    this.foldersSrv.getRootFolders().then((rootFolders: Folder[]) => {
+      const rootNodes = rootFolders.map(folder => this.folderToFlatNode(folder, []));
+      for (const node of rootNodes) {
+        this.fetchedNodes[node.folderId] = node;
+      }
+
+      // Always display the root nodes
+      this.rootFolders = { status: RootNodesStatus.LOADED, nodes: rootNodes, };
+      this.foldersToDisplay = rootNodes.map(node => node.folderId);
+      this.updateNodesToDisplay();
+    }).catch((error: any) => {
+      this.rootFolders.status = RootNodesStatus.ERROR;
+      console.warn('[DynamicTree::fetchRootFolders] ERROR: ', error);
+    });
+  }
+
+  private fetchSubFolders(parentNode: FlatFolderNode): void {
+    if (parentNode.children.status === NodeChildrenStatus.LOADING) { return; }
+    if (parentNode.children.status === NodeChildrenStatus.LOADED) { return; }
+    if (parentNode.children.status === NodeChildrenStatus.NO_CHILDREN) { return; }
+
+    parentNode.children.status = NodeChildrenStatus.LOADING;
+    this.foldersSrv.getSubFolders(parentNode.folderId).then((subFolders: Folder[]) => {
+      const childParentIds = [...parentNode.parentIds, parentNode.folderId];
+      const subNodes = subFolders.map(folder => this.folderToFlatNode(folder, childParentIds));
+      for (const node of subNodes) {
+        this.fetchedNodes[node.folderId] = node;
+      }
+
+      parentNode.children.status = NodeChildrenStatus.LOADED;
+      parentNode.children.items = subNodes;
+
+      // Only display loaded subFolders if the opening hasn't been canceled,
+      // and parentNode is still visible.
+      const displaySubFolders = this.pendingSubFoldersToDisplay.includes(parentNode.folderId);
+      this.pendingSubFoldersToDisplay.filter(folderId => folderId !== parentNode.folderId);
+      const foldersToDisplay = [...this.foldersToDisplay];
+
+      // Insert the child nodes ids right after the node to open,
+      // Note that the parentNode may have been hidden from view.
+      const parentNodeIndex = foldersToDisplay.indexOf(parentNode.folderId);
+      if (parentNodeIndex > -1) {
+        const childNodeIds = parentNode.children.items.map(node => node.folderId);
+        foldersToDisplay.splice(parentNodeIndex + 1, 0, ...childNodeIds);
+        this.foldersToDisplay = foldersToDisplay;
+        this.updateNodesToDisplay();
+      } else {
+        // ParentNode have been hidden from view in-between. Do not display subFolders then.
+      }
+    }).catch((error: any) => {
+      parentNode.children.status = NodeChildrenStatus.ERROR;
+      console.warn('[DynamicTree::fetchSubFolders] ERROR: ', {
+        error: error,
+        parentNode: parentNode,
+      });
+    })
+  }
+
+  private updateNodesToDisplay(): void {
+    const displayedNodes = this.foldersToDisplay
+      .map(folderId => this.fetchedNodes[folderId] || null)
+      .filter(node => node !== null);
+    this.treeControl.dataNodes = displayedNodes;
+    this.displayedNodes$.next(displayedNodes);
   }
 
   private folderToFlatNode(folder: Folder, parentIds: string[]): FlatFolderNode {
     return {
-      id: folder.folderId,
+      folderId: folder.folderId,
       title: folder.title,
       data: folder,
       parentIds: parentIds,
