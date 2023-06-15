@@ -2,7 +2,7 @@
   <mat-expansion-panel hideToggle (opened)="showFolderTree = true" (closed)="showFolderTree = false">
     <mat-expansion-panel-header>
       <mat-panel-title>
-        <h4 [class.required]="treeRequired && checklistSelection.isEmpty()">
+        <h4 [class.required]="treeRequired && selectedFolderId === null">
           Dossier Keepeek pour les photos <span *ngIf="treeRequired"> *</span>
         </h4>
         <mat-icon aria-label="visibility icon" class="description-on" *ngIf="!showFolderTree"> visibility </mat-icon>
@@ -32,6 +32,7 @@
         </button>
         <mat-checkbox
           [checked]="node.folderId === selectedFolderId"
+          [indeterminate]="parentsOfSelectedFolder[node.folderId]"
           (change)="onSelectionToggle(node, $event)">
           {{node.title}}
         </mat-checkbox>

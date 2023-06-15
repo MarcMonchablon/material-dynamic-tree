@@ -45,6 +45,7 @@ export class DynamicTreeComponent implements OnInit {
   treeControl!: FlatTreeControl<FlatFolderNode>;
   showFolderTree = false;
   selectedFolderId: string | null = null;
+  parentsOfSelectedFolder: Record<string, boolean> = {}
 
   constructor(
     private foldersSrv: FoldersService,
@@ -67,43 +68,16 @@ export class DynamicTreeComponent implements OnInit {
   }
 
   public onSelectionToggle(node: FlatFolderNode, change: MatCheckboxChange): void {
-    console.group('[DynamicTreeComponent] onSelectionToggle');
-    console.log('node: ', node);
-    console.log('change: ', change);
-    console.groupEnd();
     if (change.checked) {
+      const parentsDict = node.parentIds.reduce((acc, id) => ({...acc, [id]: true}), {});
       this.selectedFolderId = node.folderId;
+      this.parentsOfSelectedFolder = parentsDict;
     } else {
       this.selectedFolderId = null;
     }
   }
 
-  // TMP
-  public checklistSelection = {
-    isEmpty: () => true,
-    isSelected: (node: Folder) => false,
-  }
-
-  public itemSelectionToggle(node: FlatFolderNode): void {
-    // TODO
-    console.group('[DynamicTreeComponent] itemSelectionToggle');
-    console.log('node: ', node);
-    console.groupEnd();
-  }
-
-  public leafItemSelectionToggle(node: FlatFolderNode): void {
-    // TODO
-    console.group('[DynamicTreeComponent] leafItemSelectionToggle');
-    console.log('node: ', node);
-    console.groupEnd();
-  }
-
   public hasChild(index: number, node: FlatFolderNode): boolean {
-    // console.group('[DynamicTreeComponent] hasChild');
-    // console.log('index: ', index);
-    // console.log('node: ', node);
-    // console.groupEnd();
-    // TODO
     return node.data.hasChildren;
   }
 
