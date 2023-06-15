@@ -222,16 +222,16 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
       this.pendingSubFoldersToDisplay.filter(folderId => folderId !== parentNode.folderId);
       const foldersToDisplay = [...this.foldersToDisplay];
 
-      // Insert the child nodes ids right after the node to open,
       // Note that the parentNode may have been hidden from view.
       const parentNodeIndex = foldersToDisplay.indexOf(parentNode.folderId);
-      if (parentNodeIndex > -1) {
+      if (parentNodeIndex === -1) {
+        // ParentNode have been hidden from view in-between. Do not display subFolders then.
+      } else if (displaySubFolders) {
+        // Insert the child nodes ids right after the node to open,
         const childNodeIds = parentNode.children.items.map(node => node.folderId);
         foldersToDisplay.splice(parentNodeIndex + 1, 0, ...childNodeIds);
         this.foldersToDisplay = foldersToDisplay;
         this.updateNodesToDisplay();
-      } else {
-        // ParentNode have been hidden from view in-between. Do not display subFolders then.
       }
     }).catch((error: any) => {
       parentNode.children.status = NodeChildrenStatus.ERROR;
