@@ -128,6 +128,8 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
           });
 
           // The folder might potentially still being fetched. Un-mark it for opening then.
+          // NOTE: since closing a parent folder adds all it's children in the `changes.removed` array,
+          // then closing a parent will still explicitely un-mark a loading folder from opening.
           pendingSubFoldersToDisplay = pendingSubFoldersToDisplay
             .filter(folderId => folderId !== nodeToCollapse.folderId);
         }
@@ -155,8 +157,13 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
             // Queue the node for fetchSubFolders, and mark for subsequent opening.
             nodesToLoad.push(nodeToOpen);
             pendingSubFoldersToDisplay.push(nodeToOpen.folderId);
+          } else if (nodeToOpen.children.status === NodeChildrenStatus.LOADING) {
+            // If the user opened, then closed, then re-opened quickly enough,
+            // we are still in loading, but we want to mark it again for opening once it's loaded.
+            pendingSubFoldersToDisplay.push(nodeToOpen.folderId);
           } else {
-            // Nothing to do, since we are already fetching this folder.
+            // This branch should never be reach, since it's for an empty node.
+            // In any case, nothing to do.
           }
         }
       }
