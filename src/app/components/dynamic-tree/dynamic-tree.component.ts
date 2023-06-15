@@ -105,76 +105,20 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
     this.fetchRootFolders();
   }
 
+  // === Init & Destroy =====================================
+
   public connect(_collectionViewer: CollectionViewer): Observable<FlatFolderNode[]> {
     // The collection should be reasonably small, so collectionViewer can be ignored.
-    _collectionViewer.viewChange.subscribe({
-      next: (d: any) => console.log('[FoldersDataSource::collectionViewer] viewChange: ', d),
-    });
 
     // Update visible nodes & potentially fetch data when user manipulates the tree.
     this.treeControl.expansionModel.changed.subscribe((change: SelectionChange<FlatFolderNode>) => {
-      let foldersToDisplay = [...this.foldersToDisplay];
-      let pendingSubFoldersToDisplay = [...this.pendingSubFoldersToDisplay];
-      const nodesToLoad: FlatFolderNode[] = [];
-
-      // Hide any child node of a 'removed' node;
-      // Also, potentially cancel the opening of subfolders being fetched.
-      if (change.removed.length > 0) {
-        for (const nodeToCollapse of change.removed) {
-          foldersToDisplay = foldersToDisplay.filter(folderId => {
-            const node = this.fetchedNodes[folderId];
-            const isChildOfRemovedNode = node.parentIds.includes(nodeToCollapse.folderId);
-            return !isChildOfRemovedNode;
-          });
-
-          // The folder might potentially still being fetched. Un-mark it for opening then.
-          // NOTE: since closing a parent folder adds all it's children in the `changes.removed` array,
-          // then closing a parent will still explicitely un-mark a loading folder from opening.
-          pendingSubFoldersToDisplay = pendingSubFoldersToDisplay
-            .filter(folderId => folderId !== nodeToCollapse.folderId);
-        }
-      }
-
-      // Either load or display the immediate children of an opened node.
-      if (change.added.length > 0) {
-        for (const nodeToOpen of change.added) {
-          if (nodeToOpen.children.status === NodeChildrenStatus.LOADED) {
-            // Insert the child nodes ids right after the node to open.
-            const parentNodeIndex = foldersToDisplay.indexOf(nodeToOpen.folderId);
-            if (parentNodeIndex > -1) {
-              const childNodeIds = nodeToOpen.children.items.map(node => node.folderId);
-              foldersToDisplay.splice(parentNodeIndex + 1, 0, ...childNodeIds);
-            } else {
-              // This should not happen, unless there is a bug.
-              console.error('[DynamicTree::treeControl.expansion.changed] BUG: parent node not found.', {
-                foldersToDisplay: [...foldersToDisplay],
-                parentNode: nodeToOpen,
-                parentNodeIndex: parentNodeIndex,
-              });
-            }
-          } else if (nodeToOpen.children.status === NodeChildrenStatus.NOT_LOADED
-            || nodeToOpen.children.status === NodeChildrenStatus.ERROR) {
-            // Queue the node for fetchSubFolders, and mark for subsequent opening.
-            nodesToLoad.push(nodeToOpen);
-            pendingSubFoldersToDisplay.push(nodeToOpen.folderId);
-          } else if (nodeToOpen.children.status === NodeChildrenStatus.LOADING) {
-            // If the user opened, then closed, then re-opened quickly enough,
-            // we are still in loading, but we want to mark it again for opening once it's loaded.
-            pendingSubFoldersToDisplay.push(nodeToOpen.folderId);
-          } else {
-            // This branch should never be reach, since it's for an empty node.
-            // In any case, nothing to do.
-          }
-        }
-      }
-
-      // Finally, update the visible nodes, and potentially fetch new data.
-      this.foldersToDisplay = foldersToDisplay;
-      this.pendingSubFoldersToDisplay = pendingSubFoldersToDisplay;
+      const updated = this.computeStateUpdate(change);
+      this.foldersToDisplay = updated.foldersToDisplay;
       this.updateNodesToDisplay();
 
       // Note that 'fetchSubFolders' might trigger the 'updateNodesToDisplay' later, too.
-      for (const nodeToLoad of nodesToLoad) {
+      this.pendingSubFoldersToDisplay = updated.pendingSubFoldersToDisplay;
+      for (const nodeToLoad of updated.nodesToLoad) {
         this.fetchSubFolders(nodeToLoad);
       }
     });
@@ -185,6 +129,103 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
   public disconnect(_collectionViewer: CollectionViewer): void {
     // TODO
   }
+
+  // === Core logic =========================================
+
+  /***
+   * Synchronize the UI state after a user or a data update.
+   *
+   * This function may be short, but it's the heart of this class data-flow:
+   *
+   * We need a easy-to-access list of all loaded nodes, which is our `this.fetchedNodes` dictionary.
+   * The Material tree component expects an observable of a flat array of all nodes to display,
+   * which is `this.displayedNodes$`, returned in `connect()`, but mostly updated here.
+   * We bridge both with `this.foldersToDisplay`, a list of folderId (which are also used as node id).
+   *
+   * We expect the `fetchedNodes` to always contain all known nodes in the tree,
+   * and `foldersToDisplay` to be up-to-date after a user update, and after new data has been loaded.
+   */
+  private updateNodesToDisplay(): void {
+    const displayedNodes = this.foldersToDisplay
+      .map(folderId => this.fetchedNodes[folderId] || null)
+      .filter(node => node !== null);
+    this.treeControl.dataNodes = displayedNodes;
+    this.displayedNodes$.next(displayedNodes);
+  }
+
+
+  /***
+   * Compute the data to change after an expand/collapse action.
+   * This function is free of side effects.
+   */
+  private computeStateUpdate(change: SelectionChange<FlatFolderNode>): {
+    foldersToDisplay: string[],
+    pendingSubFoldersToDisplay: string[],
+    nodesToLoad: FlatFolderNode[],
+  } {
+    let foldersToDisplay = [...this.foldersToDisplay];
+    let pendingSubFoldersToDisplay = [...this.pendingSubFoldersToDisplay];
+    const nodesToLoad: FlatFolderNode[] = [];
+
+    // Hide any child node of a 'removed' node;
+    // Also, potentially cancel the opening of subFolders being fetched.
+    if (change.removed.length > 0) {
+      for (const nodeToCollapse of change.removed) {
+        foldersToDisplay = foldersToDisplay.filter(folderId => {
+          const node = this.fetchedNodes[folderId];
+          const isChildOfRemovedNode = node.parentIds.includes(nodeToCollapse.folderId);
+          return !isChildOfRemovedNode;
+        });
+
+        // The folder might potentially still being fetched. Un-mark it for opening then.
+        // NOTE: since closing a parent folder adds all it's children in the `changes.removed` array,
+        // then closing a parent will still explicitly un-mark a loading folder from opening.
+        pendingSubFoldersToDisplay = pendingSubFoldersToDisplay
+          .filter(folderId => folderId !== nodeToCollapse.folderId);
+      }
+    }
+
+    // Either load or display the immediate children of an opened node.
+    if (change.added.length > 0) {
+      for (const nodeToOpen of change.added) {
+        if (nodeToOpen.children.status === NodeChildrenStatus.LOADED) {
+          // Insert the child nodes ids right after the node to open.
+          const parentNodeIndex = foldersToDisplay.indexOf(nodeToOpen.folderId);
+          if (parentNodeIndex > -1) {
+            const childNodeIds = nodeToOpen.children.items.map(node => node.folderId);
+            foldersToDisplay.splice(parentNodeIndex + 1, 0, ...childNodeIds);
+          } else {
+            // This should not happen, unless there is a bug.
+            console.error('[DynamicTree::treeControl.expansion.changed] BUG: parent node not found.', {
+              foldersToDisplay: [...foldersToDisplay],
+              parentNode: nodeToOpen,
+              parentNodeIndex: parentNodeIndex,
+            });
+          }
+        } else if (nodeToOpen.children.status === NodeChildrenStatus.NOT_LOADED
+          || nodeToOpen.children.status === NodeChildrenStatus.ERROR) {
+          // Queue the node for fetchSubFolders, and mark for subsequent opening.
+          nodesToLoad.push(nodeToOpen);
+          pendingSubFoldersToDisplay.push(nodeToOpen.folderId);
+        } else if (nodeToOpen.children.status === NodeChildrenStatus.LOADING) {
+          // If the user opened, then closed, then re-opened quickly enough,
+          // we are still in loading, but we want to mark it again for opening once it's loaded.
+          pendingSubFoldersToDisplay.push(nodeToOpen.folderId);
+        } else {
+          // This branch should never be reach, since it's for an empty node.
+          // In any case, nothing to do.
+        }
+      }
+    }
+
+    return {
+      foldersToDisplay: foldersToDisplay,
+      pendingSubFoldersToDisplay: pendingSubFoldersToDisplay,
+      nodesToLoad: nodesToLoad,
+    };
+  }
+
+  // === Fetching data ======================================
 
   private fetchRootFolders(): void {
     if (this.rootFolders.status === RootNodesStatus.LOADING) { return; }
@@ -249,13 +290,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
     })
   }
 
-  private updateNodesToDisplay(): void {
-    const displayedNodes = this.foldersToDisplay
-      .map(folderId => this.fetchedNodes[folderId] || null)
-      .filter(node => node !== null);
-    this.treeControl.dataNodes = displayedNodes;
-    this.displayedNodes$.next(displayedNodes);
-  }
+  // === Helper =============================================
 
   private folderToFlatNode(folder: Folder, parentIds: string[]): FlatFolderNode {
     return {
