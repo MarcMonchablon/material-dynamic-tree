@@ -16,21 +16,23 @@
       <mat-tree-node *matTreeNodeDef="let node" matTreeNodePadding>
         <button mat-icon-button disabled></button>
         <mat-checkbox class="checklist-leaf-node"
-                      [checked]="checklistSelection.isSelected(node)"
-                      (change)="leafItemSelectionToggle(node)">
+                      [checked]="node.folderId === selectedFolderId"
+                      (change)="onSelectionToggle(node, $event)">
           {{node.title}}
         </mat-checkbox>
       </mat-tree-node>
 
       <mat-tree-node *matTreeNodeDef="let node; when: hasChild" matTreeNodePadding>
-        <button mat-icon-button
+        <button mat-icon-button type="button"
                 matTreeNodeToggle [matTreeNodeToggleRecursive]="true"
                 [attr.aria-label]="'Toggle ' + node.title">
           <mat-icon class="mat-icon-rtl-mirror">
             {{treeControl.isExpanded(node) ? 'expand_more' : 'chevron_right'}}
           </mat-icon>
         </button>
-        <mat-checkbox [checked]="checklistSelection.isSelected(node)" (change)="itemSelectionToggle(node)">
+        <mat-checkbox
+          [checked]="node.folderId === selectedFolderId"
+          (change)="onSelectionToggle(node, $event)">
           {{node.title}}
         </mat-checkbox>
         <mat-progress-bar *ngIf="node.children.status === NodeChildrenStatus.LOADING"

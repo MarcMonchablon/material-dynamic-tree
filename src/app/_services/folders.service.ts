@@ -43,6 +43,7 @@ const FOLDERS = {
 };
 
 const VERBOSE: boolean = true;
+const DEFAULT_FOLDER_ID = 'rocks';
 
 
 @Injectable({
@@ -72,6 +73,11 @@ export class FoldersService {
         resolve(subFolders);
       }, DELAY)
     });
+  }
+
+  public getDefaultFolderId(): string {
+    // An empty string corresponds to no folder selected by default.
+    return DEFAULT_FOLDER_ID;
   }
 
   private formatFolder(raw: { id: string, label: string }): Folder {

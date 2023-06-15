@@ -1,6 +1,7 @@
 import { NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
@@ -24,6 +25,11 @@ import { DynamicTreeComponent } from './components/dynamic-tree/dynamic-tree.com
   imports: [
     BrowserModule,
     AppRoutingModule,
+    FormsModule,
+    ReactiveFormsModule,
+    BrowserAnimationsModule,
+
+    // Material
     MatIconModule,
     MatCardModule,
     MatFormFieldModule,
@@ -33,7 +39,6 @@ import { DynamicTreeComponent } from './components/dynamic-tree/dynamic-tree.com
     MatTreeModule,
     MatExpansionModule,
     MatProgressBarModule,
-    BrowserAnimationsModule,
   ],
   declarations: [
     AppComponent,

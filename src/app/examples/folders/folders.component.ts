@@ -1,6 +1,6 @@
 import { Component, OnInit } from '@angular/core';
+import { UntypedFormBuilder, UntypedFormControl } from '@angular/forms';
 import { FoldersService } from '../../_services/folders.service';
-import { UntypedFormControl } from '@angular/forms';
 
 @Component({
   selector: 'app-folders',
@@ -9,13 +9,17 @@ import { UntypedFormControl } from '@angular/forms';
 })
 export class FoldersComponent implements OnInit {
   public treeRequired: boolean = false;
-  public treeForm = new UntypedFormControl('');
+  public treeForm!: UntypedFormControl;
 
   constructor(
     private foldersSrv: FoldersService,
+    private _fb: UntypedFormBuilder,
   ) {}
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    const defaultFolderId = this.foldersSrv.getDefaultFolderId();
+    this.treeForm = this._fb.control(defaultFolderId);
+  }
 
   onFolderSelected(val: string): void {
     console.group('[FoldersComponent] onFolderSelected');

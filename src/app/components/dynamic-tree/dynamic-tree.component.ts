@@ -1,6 +1,7 @@
 import { Component, OnInit, Input, Output, EventEmitter } from '@angular/core';
 import { UntypedFormControl } from '@angular/forms';
 import { CollectionViewer, DataSource, SelectionChange } from '@angular/cdk/collections';
+import { MatCheckboxChange } from '@angular/material/checkbox';
 import { FlatTreeControl } from '@angular/cdk/tree';
 import { Observable, BehaviorSubject } from 'rxjs';
 import { FoldersService, Folder } from '../../_services/folders.service';
@@ -43,7 +44,7 @@ export class DynamicTreeComponent implements OnInit {
   dataSource: FoldersDataSource;
   treeControl!: FlatTreeControl<FlatFolderNode>;
   showFolderTree = false;
-  selectedId: string | null = null;
+  selectedFolderId: string | null = null;
 
   constructor(
     private foldersSrv: FoldersService,
@@ -55,7 +56,26 @@ export class DynamicTreeComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.selectedId = null;
+    const defaultValue = (this.treeForm.value.trim() !== '') ? this.treeForm.value : null;
+    this.selectedFolderId = defaultValue
+    this.dataSource.preselectValue(this.selectedFolderId, (node: FlatFolderNode | null) => {
+      console.group('[DynamicTreeComponent] onDataFetched');
+      console.log('defaultValue: ', defaultValue);
+      console.log('node: ', node);
+      console.groupEnd();
+    });
+  }
+
+  public onSelectionToggle(node: FlatFolderNode, change: MatCheckboxChange): void {
+    console.group('[DynamicTreeComponent] onSelectionToggle');
+    console.log('node: ', node);
+    console.log('change: ', change);
+    console.groupEnd();
+    if (change.checked) {
+      this.selectedFolderId = node.folderId;
+    } else {
+      this.selectedFolderId = null;
+    }
   }
 
   // TMP
@@ -152,11 +172,10 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
   private updateNodesToDisplay(): void {
     const displayedNodes = this.foldersToDisplay
       .map(folderId => this.fetchedNodes[folderId] || null)
-      .filter(node => node !== null);
+      .filter(node => node !== null) as FlatFolderNode[];
     this.treeControl.dataNodes = displayedNodes;
     this.displayedNodes$.next(displayedNodes);
   }
-
 
   /***
    * Compute the data to change after an expand/collapse action.
@@ -292,6 +311,15 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
         parentNode: parentNode,
       });
     })
+  }
+
+  // === Pre-select value & pre-fetch data ==================
+
+  public preselectValue(folderId: string | null, cb: (node: FlatFolderNode | null) => void): void {
+    // TODO
+    console.group('[FoldersDataSource] preselectValue');
+    console.log('folderId: ', folderId);
+    console.groupEnd();
   }
 
   // === Helper =============================================
