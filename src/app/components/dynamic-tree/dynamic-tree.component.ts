@@ -64,6 +64,11 @@ export class DynamicTreeComponent implements OnInit {
     const defaultValue = (this.treeForm.value.trim() !== '') ? this.treeForm.value : null;
     this.selectedFolderId = defaultValue
     this.dataSource.preSelectValue(this.selectedFolderId, (node: FlatFolderNode | null, canceled) => {
+
+      if (node) {
+        const parentsDict = node.parentIds.reduce((acc, id) => ({...acc, [id]: true}), {});
+        this.parentsOfSelectedFolder = parentsDict;
+      }
       console.group('[DynamicTreeComponent] onDataFetched');
       console.log('defaultValue: ', defaultValue);
       console.log('node: ', node);
@@ -350,7 +355,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
     if (preSelectedNode) { cb(preSelectedNode, false); return; }
 
     // Third case: we need to fetch more subfolders to reach preSelectedNode
-    let remainingNodes = this.getListOfRemainingNodesToLoad();
+    let remainingNodes = this.getBreadthFirstListOfNodesToLoad();
     while (!preSelectedNode && remainingNodes.length > 0) {
       const nextNodeToLoad = remainingNodes[0];
       try {
@@ -364,28 +369,32 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
       }
 
       // We don't explicitly search on the just-loaded sub-nodes, since other potential
-      // subNodes may have been loaded in-between.
+      // sub-nodes may have been loaded in-between.
       preSelectedNode = this.fetchedNodes[preSelectedId] || null;
       if (preSelectedNode) { cb(preSelectedNode, false); return; }
 
-      remainingNodes = this.getListOfRemainingNodesToLoad();
+      remainingNodes = this.getBreadthFirstListOfNodesToLoad();
     }
 
-    // Fourth and last case: we couldn't find the preSelected folder
+    // Fourth and last case: we couldn't find the preSelected folder.
     cb(null, this.preSelection.canceled);
   }
 
-  private getListOfRemainingNodesToLoad(): FlatFolderNode[] {
-    const rootNodes = this.rootFolders.nodes;
-    const remaining = rootNodes
+  private getBreadthFirstListOfNodesToLoad(): FlatFolderNode[] {
+    let breadthFirstNodes: FlatFolderNode[] = [];
+    let nextLevelNodes: FlatFolderNode[] = [...this.rootFolders.nodes];
+
+    do {
+      breadthFirstNodes = [...breadthFirstNodes, ...nextLevelNodes];
+      nextLevelNodes = nextLevelNodes
+        .map(node => node.children.items)
+        .reduce((acc, arr) => [...acc, ...arr], []);
+    } while (nextLevelNodes.length > 0);
+
+    const remainingNodes = breadthFirstNodes
       .filter(node => node.children.status === NodeChildrenStatus.NOT_LOADED);
 
-    // TODO: do a breadth-first descent
-    return remaining;
-  }
-
-  private triggerSubFolderLoading() {
-    // TODO
+    return remainingNodes;
   }
 
   // === Helper =============================================

@@ -43,7 +43,7 @@ const FOLDERS = {
 };
 
 const VERBOSE: boolean = true;
-const DEFAULT_FOLDER_ID = 'platypus';
+const DEFAULT_FOLDER_ID = 'horse';
 
 
 @Injectable({
