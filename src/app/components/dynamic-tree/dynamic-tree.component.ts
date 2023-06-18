@@ -53,6 +53,7 @@ type PreSelectionCallbackFn = (node: FlatFolderNode | null, canceled: boolean) =
   styleUrls: ['./dynamic-tree.component.scss']
 })
 export class DynamicTreeComponent implements OnInit {
+  protected readonly NodeChildrenStatus = NodeChildrenStatus;
   @Input() treeRequired!: boolean;
   @Input() treeForm!: UntypedFormControl;
   @Output() nodeSelectedEvent = new EventEmitter<string>();
@@ -99,11 +100,14 @@ export class DynamicTreeComponent implements OnInit {
     }
   }
 
+  public retryFailedFetch(node: FlatFolderNode): void {
+    this.dataSource.fetchSubFolders(node);
+  }
+
   public hasChild(index: number, node: FlatFolderNode): boolean {
     return node.data.hasChildren;
   }
 
-  protected readonly NodeChildrenStatus = NodeChildrenStatus;
 }
 
 
@@ -277,7 +281,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
     });
   }
 
-  private fetchSubFolders(parentNode: FlatFolderNode): Promise<FlatFolderNode[]> {
+  public fetchSubFolders(parentNode: FlatFolderNode): Promise<FlatFolderNode[]> {
     if (parentNode.children.status === NodeChildrenStatus.LOADING) {
       return parentNode.children.promise as Promise<FlatFolderNode[]>;
     }

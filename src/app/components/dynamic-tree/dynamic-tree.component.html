@@ -13,6 +13,7 @@
     </mat-expansion-panel-header>
 
     <mat-tree [dataSource]="dataSource" [treeControl]="treeControl">
+      <!-- Leaf node -->
       <mat-tree-node *matTreeNodeDef="let node" matTreeNodePadding>
         <button mat-icon-button disabled></button>
         <mat-checkbox class="checklist-leaf-node"
@@ -22,7 +23,10 @@
         </mat-checkbox>
       </mat-tree-node>
 
-      <mat-tree-node *matTreeNodeDef="let node; when: hasChild" matTreeNodePadding>
+      <!-- Branch node -->
+      <mat-tree-node *matTreeNodeDef="let node; when: hasChild"
+                     [class.loading-error]="node.children.status === NodeChildrenStatus.ERROR"
+                     matTreeNodePadding>
         <button mat-icon-button type="button"
                 matTreeNodeToggle [matTreeNodeToggleRecursive]="true"
                 [attr.aria-label]="'Toggle ' + node.title">
@@ -42,6 +46,12 @@
         <mat-progress-bar *ngIf="node.children.status !== NodeChildrenStatus.LOADING && node.children.descendantsLoading.length > 0 && !treeControl.isExpanded(node)"
                           mode="buffer"
                           class="tree-progress-bar"></mat-progress-bar>
+        <div class="error-box" *ngIf="node.children.status === NodeChildrenStatus.ERROR">
+          Could not fetch subfolders.
+          <button mat-button type="button" (click)="retryFailedFetch(node)">
+            Try again
+          </button>
+        </div>
       </mat-tree-node>
     </mat-tree>
   </mat-expansion-panel>

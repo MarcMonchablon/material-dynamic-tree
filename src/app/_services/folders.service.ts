@@ -42,14 +42,16 @@ const FOLDERS = {
   ],
 };
 
-const VERBOSE: boolean = true;
+const VERBOSE: boolean = false;
 const DEFAULT_FOLDER_ID = 'horse';
+const FOLDERS_WITH_ISSUES = ['animals'];
 
 
 @Injectable({
   providedIn: 'root'
 })
 export class FoldersService {
+  private subFolderRejections: Record<string, boolean> = {};
 
   public getRootFolders(DELAY = 1000): Promise<Folder[]> {
     const folders = FOLDERS['_root_'].map(d => this.formatFolder(d));
@@ -70,7 +72,16 @@ export class FoldersService {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
         if (VERBOSE) { console.log('[FoldersSrv::getSubFolder] query end', { folderId }); }
-        resolve(subFolders);
+        const folderWithIssues = FOLDERS_WITH_ISSUES.includes(folderId);
+        if (!folderWithIssues) { return resolve(subFolders); }
+
+        // If subFolder has issues, it is rejected at first, and then loaded.
+        if (folderId in this.subFolderRejections) {
+          resolve(subFolders);
+        } else {
+          this.subFolderRejections[folderId] = true;
+          reject(`Cannot load '${folderId}'. Try again.`);
+        }
       }, DELAY)
     });
   }
