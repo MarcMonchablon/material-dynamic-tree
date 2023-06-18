@@ -44,7 +44,7 @@ const FOLDERS = {
 
 const VERBOSE: boolean = false;
 const DEFAULT_FOLDER_ID = 'horse';
-const FOLDERS_WITH_ISSUES = ['animals'];
+const FOLDERS_WITH_ISSUES: string[] = ['plants'];
 
 
 @Injectable({
