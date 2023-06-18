@@ -15,6 +15,7 @@ interface FlatFolderNode {
     status: NodeChildrenStatus,
     items: FlatFolderNode[],
     promise?: Promise<FlatFolderNode[]>,
+    descendantsLoading: string[],
   }
 }
 
@@ -275,6 +276,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
     }
 
     parentNode.children.status = NodeChildrenStatus.LOADING;
+    this.updateAncestorsChildLoadingStatus(parentNode, true);
     const subNodesPromise = this.foldersSrv.getSubFolders(parentNode.folderId).then((subFolders: Folder[]) => {
       const childParentIds = [...parentNode.parentIds, parentNode.folderId];
       const subNodes = subFolders.map(folder => this.folderToFlatNode(folder, childParentIds));
@@ -284,6 +286,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
 
       parentNode.children.status = NodeChildrenStatus.LOADED;
       parentNode.children.items = subNodes;
+      this.updateAncestorsChildLoadingStatus(parentNode, false);
 
       // Only display loaded subFolders if the opening hasn't been canceled,
       // and parentNode is still visible.
@@ -306,6 +309,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
       return subNodes;
     }).catch((error: any) => {
       parentNode.children.status = NodeChildrenStatus.ERROR;
+      this.updateAncestorsChildLoadingStatus(parentNode, false);
       console.warn('[DynamicTree::fetchSubFolders] ERROR: ', {
         error: error,
         parentNode: parentNode,
@@ -316,6 +320,17 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
 
     parentNode.children.promise = subNodesPromise
     return subNodesPromise;
+  }
+
+  private updateAncestorsChildLoadingStatus(parentNode: FlatFolderNode, loading: boolean): void {
+    const ancestors = parentNode.parentIds.map(id => this.fetchedNodes[id]);
+    if (loading) {
+      ancestors.forEach(node => node.children.descendantsLoading.push(parentNode.folderId));
+    } else {
+      ancestors.forEach(node => {
+        node.children.descendantsLoading = node.children.descendantsLoading.filter(id => id !== parentNode.folderId);
+      });
+    }
   }
 
   // === Pre-select value & pre-fetch data ==================
@@ -408,6 +423,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
       children: {
         status: folder.hasChildren ? NodeChildrenStatus.NOT_LOADED : NodeChildrenStatus.NO_CHILDREN,
         items: [],
+        descendantsLoading: [],
       }
     };
   }

@@ -39,6 +39,9 @@
         <mat-progress-bar *ngIf="node.children.status === NodeChildrenStatus.LOADING"
                           mode="indeterminate"
                           class="tree-progress-bar"></mat-progress-bar>
+        <mat-progress-bar *ngIf="node.children.status !== NodeChildrenStatus.LOADING && node.children.descendantsLoading.length > 0 && !treeControl.isExpanded(node)"
+                          mode="buffer"
+                          class="tree-progress-bar"></mat-progress-bar>
       </mat-tree-node>
     </mat-tree>
   </mat-expansion-panel>
