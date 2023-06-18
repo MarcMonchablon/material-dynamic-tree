@@ -44,7 +44,7 @@ type DataSourceEvent =
   | { type: DataSourceEventType.CHILD_NODES_FETCHED, nodes: FlatFolderNode[] }
   | { type: DataSourceEventType.END_OF_QUEUE_REACHED };
 
-type PreSelectionCallbackFn = (node: FlatFolderNode | null, canceled: boolean) => void;
+type PreSelectionCallbackFn = (node: FlatFolderNode | null, endOfQueueReached: boolean) => void;
 
 
 @Component({
@@ -61,7 +61,8 @@ export class DynamicTreeComponent implements OnInit {
   treeControl!: FlatTreeControl<FlatFolderNode>;
   showFolderTree = false;
   selectedFolderId: string | null = null;
-  parentsOfSelectedFolder: Record<string, boolean> = {}
+  selectedFolderMissing: boolean = false;
+  parentsOfSelectedFolder: Record<string, boolean> = {};
 
   constructor(
     private foldersSrv: FoldersService,
@@ -75,22 +76,18 @@ export class DynamicTreeComponent implements OnInit {
   ngOnInit(): void {
     const defaultValue = (this.treeForm.value.trim() !== '') ? this.treeForm.value : null;
     this.selectedFolderId = defaultValue
-    this.dataSource.preSelectValue(this.selectedFolderId, (node: FlatFolderNode | null, canceled) => {
-
+    this.dataSource.preSelectValue(this.selectedFolderId, (node: FlatFolderNode | null, endOfQueueReached) => {
+      this.selectedFolderMissing = endOfQueueReached;
       if (node) {
         const parentsDict = node.parentIds.reduce((acc, id) => ({...acc, [id]: true}), {});
         this.parentsOfSelectedFolder = parentsDict;
       }
-      console.group('[DynamicTreeComponent] onDataFetched');
-      console.log('defaultValue: ', defaultValue);
-      console.log('node: ', node);
-      console.log('canceled: ', canceled);
-      console.groupEnd();
     });
   }
 
   public onSelectionToggle(node: FlatFolderNode, change: MatCheckboxChange): void {
     this.dataSource.cancelPreSelection();
+    this.selectedFolderMissing = false;
     if (change.checked) {
       const parentsDict = node.parentIds.reduce((acc, id) => ({...acc, [id]: true}), {});
       this.selectedFolderId = node.folderId;
@@ -101,7 +98,12 @@ export class DynamicTreeComponent implements OnInit {
   }
 
   public retryFailedFetch(node: FlatFolderNode): void {
-    this.dataSource.fetchSubFolders(node);
+    const triggerSearch = this.dataSource.hasUnresolvedPreSelection();
+    this.dataSource.fetchSubFolders(node).then(() => {
+      if (triggerSearch) {
+        this.dataSource.searchMoreNodesForPreSelection();
+      }
+    });
   }
 
   public hasChild(index: number, node: FlatFolderNode): boolean {
@@ -393,7 +395,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
           break;
         case DataSourceEventType.END_OF_QUEUE_REACHED:
           console.warn('[DynamicTree::preSelectValue] End of queue reached.');
-          this.preSelection.cb(null, false);
+          this.preSelection.cb(null, true);
           break;
       }
     });
@@ -405,13 +407,18 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
 
   public cancelPreSelection(): void {
     this.preSelection.canceled = true;
-    this.preSelection.cb(null, true);
+    this.preSelection.cb(null, false);
+  }
+
+  public hasUnresolvedPreSelection(): boolean {
+    const preSelectionWasResolved = this.preSelection.canceled || this.preSelection.found;
+    return !preSelectionWasResolved;
   }
 
   /** Trigger recursive calls to API in search of the node matching the preselected folderId. */
-  private async searchMoreNodesForPreSelection(): Promise<void> {
+  public async searchMoreNodesForPreSelection(): Promise<void> {
     const MAX_ITERATION_COUNT = 30;
-    let searchComplete = false;
+    let searchComplete = this.preSelection.canceled || this.preSelection.found;
     let remainingNodes = this.getBreadthFirstListOfNodesToLoad();
 
     let i = 0;

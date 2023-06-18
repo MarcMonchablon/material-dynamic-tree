@@ -4,6 +4,9 @@
       <mat-panel-title>
         <h4 [class.required]="treeRequired && selectedFolderId === null">
           Dossier Keepeek pour les photos <span *ngIf="treeRequired"> *</span>
+          <span class="selected-folder-not-found" *ngIf="selectedFolderMissing">
+            Dossier pré-selectionné manquant
+          </span>
         </h4>
         <mat-icon aria-label="visibility icon" class="description-on" *ngIf="!showFolderTree"> visibility </mat-icon>
         <mat-icon aria-label="visibility_off icon" class="description-off" *ngIf="showFolderTree">
