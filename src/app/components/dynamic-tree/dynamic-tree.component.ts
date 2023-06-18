@@ -3,7 +3,7 @@ import { UntypedFormControl } from '@angular/forms';
 import { CollectionViewer, DataSource, SelectionChange } from '@angular/cdk/collections';
 import { MatCheckboxChange } from '@angular/material/checkbox';
 import { FlatTreeControl } from '@angular/cdk/tree';
-import { Observable, BehaviorSubject } from 'rxjs';
+import { Observable, BehaviorSubject, Subject, Subscription } from 'rxjs';
 import { FoldersService, Folder } from '../../_services/folders.service';
 
 interface FlatFolderNode {
@@ -33,6 +33,16 @@ enum NodeChildrenStatus {
   LOADED = 'loaded',
   ERROR = 'error',
 }
+
+enum DataSourceEventType {
+  ROOT_NODES_FETCHED = 'root-nodes-fetched',
+  CHILD_NODES_FETCHED = 'child-nodes-fetched',
+  END_OF_QUEUE_REACHED = 'end-of-queue-reached',
+}
+type DataSourceEvent =
+  | { type: DataSourceEventType.ROOT_NODES_FETCHED, nodes: FlatFolderNode[] }
+  | { type: DataSourceEventType.CHILD_NODES_FETCHED, nodes: FlatFolderNode[] }
+  | { type: DataSourceEventType.END_OF_QUEUE_REACHED };
 
 type PreSelectionCallbackFn = (node: FlatFolderNode | null, canceled: boolean) => void;
 
@@ -106,14 +116,16 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
   private foldersToDisplay: string[] = [];
   private pendingSubFoldersToDisplay: string[] = [];
   private displayedNodes$ = new BehaviorSubject<FlatFolderNode[]>([]);
-  private preSelection: { folderId: string | null, cb: PreSelectionCallbackFn, canceled: boolean }
+  private preSelection: { folderId: string | null, cb: PreSelectionCallbackFn, canceled: boolean, found: boolean }
+  private dataEvents$ = new Subject<DataSourceEvent>();
+  private subscriptions: Record<string, Subscription> = {};
 
   constructor(
     private foldersSrv: FoldersService,
     private treeControl: FlatTreeControl<FlatFolderNode>,
   ) {
     this.rootFolders = { status: RootNodesStatus.NOOP, nodes: [] };
-    this.preSelection = { folderId: null, cb: () => {}, canceled: false };
+    this.preSelection = { folderId: null, cb: () => {}, canceled: false, found: false };
   }
 
   // === Init & Destroy =====================================
@@ -125,7 +137,8 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
     this.fetchRootFolders();
 
     // Update visible nodes & potentially fetch data when user manipulates the tree.
-    this.treeControl.expansionModel.changed.subscribe((change: SelectionChange<FlatFolderNode>) => {
+    const treeUpdate$ = this.treeControl.expansionModel.changed;
+    this.subscriptions['treeUpdate'] = treeUpdate$.subscribe((change: SelectionChange<FlatFolderNode>) => {
       const updated = this.computeStateUpdate(change);
       this.foldersToDisplay = updated.foldersToDisplay;
       this.updateNodesToDisplay();
@@ -141,7 +154,9 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
   }
 
   public disconnect(_collectionViewer: CollectionViewer): void {
-    // TODO
+    for (const key in this.subscriptions) {
+      this.subscriptions[key].unsubscribe();
+    }
   }
 
   // === Core logic =========================================
@@ -250,14 +265,12 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
       for (const node of rootNodes) {
         this.fetchedNodes[node.folderId] = node;
       }
+      this.rootFolders = { status: RootNodesStatus.LOADED, nodes: rootNodes, };
+      this.dataEvents$.next({ type: DataSourceEventType.ROOT_NODES_FETCHED, nodes: rootNodes });
 
       // Always display the root nodes
-      this.rootFolders = { status: RootNodesStatus.LOADED, nodes: rootNodes, };
       this.foldersToDisplay = rootNodes.map(node => node.folderId);
       this.updateNodesToDisplay();
-
-      // Potentially update & query subfolder if a value should be pre-set
-      this.updatePreSelectedNodeAfterInitialLoad();
     }).catch((error: any) => {
       this.rootFolders.status = RootNodesStatus.ERROR;
       console.warn('[DynamicTree::fetchRootFolders] ERROR: ', error);
@@ -287,6 +300,7 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
       parentNode.children.status = NodeChildrenStatus.LOADED;
       parentNode.children.items = subNodes;
       this.updateAncestorsChildLoadingStatus(parentNode, false);
+      this.dataEvents$.next({ type: DataSourceEventType.CHILD_NODES_FETCHED, nodes: subNodes });
 
       // Only display loaded subFolders if the opening hasn't been canceled,
       // and parentNode is still visible.
@@ -339,72 +353,93 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
     this.preSelection.folderId = folderId;
     this.preSelection.cb = cb;
 
-    if (this.preSelection.canceled || folderId === null || folderId === '') {
-      // No folder to pre-select, or another folder has been selected since. Nothing to do.
-      // Call the callback, and wrap it up.
-      cb(null, this.preSelection.canceled);
-    } else if (this.rootFolders.status === RootNodesStatus.LOADED) {
-      this.updatePreSelectedNodeAfterInitialLoad();
-    } else {
-      // We are still waiting for root folders to load.
-      // The `fetchRootFolders()` method will call `this.updatePreSelectedNodeAfterInitialLoad()`.
+    // In case of an empty folderId, do nothing.
+    if (!folderId || folderId === '') {
+      this.preSelection.found = true;
+      this.preSelection.cb(null, false);
+      return;
+    }
+
+    // Check if pre-selected node is already loaded.
+    if (this.fetchedNodes[folderId]) {
+      this.preSelection.found = true;
+      this.preSelection.cb(this.fetchedNodes[folderId], false);
+      return;
+    }
+    const waitForRootNodesFetchBeforeTriggeringSearch = this.rootFolders.status !== RootNodesStatus.LOADED;
+
+    // If not, watch for any new data-events, and potentially load more folders.
+    this.subscriptions['dataEvents'] = this.dataEvents$.subscribe((event: DataSourceEvent) => {
+      if (this.preSelection.canceled || this.preSelection.found) { return; }
+
+      switch (event.type) {
+        case DataSourceEventType.ROOT_NODES_FETCHED:
+          if (this.fetchedNodes[folderId]) {
+            this.preSelection.found = true;
+            this.preSelection.cb(this.fetchedNodes[folderId], false);
+          } else if (waitForRootNodesFetchBeforeTriggeringSearch) {
+            this.searchMoreNodesForPreSelection();
+          }
+          break;
+        case DataSourceEventType.CHILD_NODES_FETCHED:
+          if (this.fetchedNodes[folderId]) {
+            this.preSelection.found = true;
+            this.preSelection.cb(this.fetchedNodes[folderId], false);
+          }
+          break;
+        case DataSourceEventType.END_OF_QUEUE_REACHED:
+          console.warn('[DynamicTree::preSelectValue] End of queue reached.');
+          this.preSelection.cb(null, false);
+          break;
+      }
+    });
+
+    if (!waitForRootNodesFetchBeforeTriggeringSearch) {
+      this.searchMoreNodesForPreSelection();
     }
   }
 
   public cancelPreSelection(): void {
     this.preSelection.canceled = true;
+    this.preSelection.cb(null, true);
   }
 
-  private async updatePreSelectedNodeAfterInitialLoad(): Promise<void> {
-    const preSelectedId = this.preSelection.folderId;
-    const cb = this.preSelection.cb;
-
-    // First case: nothing to do.
-    if (this.preSelection.canceled || !preSelectedId || preSelectedId === '') {
-      cb(null, this.preSelection.canceled);
-      return;
-    }
-
-    // Second case: preSelected folder is one of the root (or any loaded) folders.
-    let preSelectedNode = this.fetchedNodes[preSelectedId] || null;
-    if (preSelectedNode) { cb(preSelectedNode, false); return; }
-
-    // Third case: we need to fetch more subfolders to reach preSelectedNode
+  /** Trigger recursive calls to API in search of the node matching the preselected folderId. */
+  private async searchMoreNodesForPreSelection(): Promise<void> {
+    const MAX_ITERATION_COUNT = 30;
+    let searchComplete = false;
     let remainingNodes = this.getBreadthFirstListOfNodesToLoad();
-    while (!preSelectedNode && remainingNodes.length > 0) {
-      const nextNodeToLoad = remainingNodes[0];
+
+    let i = 0;
+    while ((i < MAX_ITERATION_COUNT) && !searchComplete && remainingNodes.length > 0) {
+      i++;
+
       try {
-        await this.fetchSubFolders(nextNodeToLoad);
-      } catch(e) {}
-
-      // We might have canceled since.
-      if (this.preSelection.canceled) {
-        cb(null, true);
-        return;
-      }
-
-      // We don't explicitly search on the just-loaded sub-nodes, since other potential
-      // sub-nodes may have been loaded in-between.
-      preSelectedNode = this.fetchedNodes[preSelectedId] || null;
-      if (preSelectedNode) { cb(preSelectedNode, false); return; }
-
+        await this.fetchSubFolders(remainingNodes[0]);
+      } catch (e) {}
+      searchComplete = this.preSelection.canceled || this.preSelection.found;
       remainingNodes = this.getBreadthFirstListOfNodesToLoad();
     }
 
-    // Fourth and last case: we couldn't find the preSelected folder.
-    cb(null, this.preSelection.canceled);
+    if (remainingNodes.length === 0 && !searchComplete) {
+      this.dataEvents$.next({ type: DataSourceEventType.END_OF_QUEUE_REACHED });
+    }
   }
 
   private getBreadthFirstListOfNodesToLoad(): FlatFolderNode[] {
+    const MAX_ITERATION_COUNT = 10;
     let breadthFirstNodes: FlatFolderNode[] = [];
     let nextLevelNodes: FlatFolderNode[] = [...this.rootFolders.nodes];
 
+    let i = 0;
     do {
+      i++;
+
       breadthFirstNodes = [...breadthFirstNodes, ...nextLevelNodes];
       nextLevelNodes = nextLevelNodes
         .map(node => node.children.items)
         .reduce((acc, arr) => [...acc, ...arr], []);
-    } while (nextLevelNodes.length > 0);
+    } while ((i < MAX_ITERATION_COUNT) && nextLevelNodes.length > 0);
 
     const remainingNodes = breadthFirstNodes
       .filter(node => node.children.status === NodeChildrenStatus.NOT_LOADED);
@@ -429,4 +464,3 @@ class FoldersDataSource implements DataSource<FlatFolderNode> {
   }
 
 }
-
