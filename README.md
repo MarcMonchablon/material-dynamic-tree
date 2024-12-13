@@ -1,7 +1,5 @@
 # MaterialTree
 
-# MaterialTree
-
 ## What & why
 
 This is a prototype for a component I did at work where we needed a dynamic tree implemented with Material.
