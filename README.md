@@ -24,6 +24,10 @@ The "plants" folder is designed to first the first time we try to load it, to mi
 
 Note: we don't necessarily have to pre-fetch the whole tree, we just need to display the currently selected one, if any.
 
+## Demo
+
+![dynamic-tree-demo.gif](dynamic-tree-demo.gif)
+
 ## Default stuff
 
 This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 14.2.11.
